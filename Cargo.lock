@@ -3,14 +3,6 @@
 version = 3
 
 [[package]]
-name = "NSGSpatialData"
-version = "0.1.0"
-dependencies = [
- "clap",
- "image",
-]
-
-[[package]]
 name = "adler"
 version = "1.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -485,6 +477,14 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6a51313c5820b0b02bd422f4b44776fbf47961755c74ce64afc73bfad10226c3"
 dependencies = [
  "getrandom",
+]
+
+[[package]]
+name = "nsdgen"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "image",
 ]
 
 [[package]]
