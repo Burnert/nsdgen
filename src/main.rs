@@ -1,4 +1,5 @@
-use std::fs;
+use std::{fs, io};
+use std::io::Write;
 use std::os::windows::fs::MetadataExt;
 use std::path::PathBuf;
 use std::process::exit;
@@ -6,6 +7,8 @@ use std::sync::mpsc;
 use std::time::Instant;
 
 use clap::{Parser, ArgAction};
+use flate2::Compression;
+use flate2::write::ZlibEncoder;
 use image::{DynamicImage, GenericImageView};
 use image::imageops::FilterType;
 use thousands::Separable;
@@ -158,7 +161,7 @@ fn make_dimensions_bytes(dimensions: &LayerDimensions) -> Box<[u8]> {
     bytes.into_boxed_slice()
 }
 
-fn make_data_bytes(layers: &[Layer], dimensions: &LayerDimensions) -> Box<[u8]> {
+fn make_data_bytes(layers: &[Layer], dimensions: &LayerDimensions) -> io::Result<Box<[u8]>> {
     let mut bytes: Vec<u8> = vec![];
 
     bytes.extend_from_slice(NSD_DATA_HEADER.as_slice());
@@ -169,17 +172,26 @@ fn make_data_bytes(layers: &[Layer], dimensions: &LayerDimensions) -> Box<[u8]> 
     bytes.extend_from_slice((combined_size as u32).to_le_bytes().as_slice());
 
     let texel_count = dimensions.get_texel_count();
+    let mut raw_data: Vec<u8> = vec![];
+    raw_data.reserve(texel_count * layers.len());
     for i in 0..texel_count {
         for layer in layers {
             let rgba = layer.image.get_pixel(i as u32 % dimensions.width, i as u32 / dimensions.width);
-            bytes.push(rgba.0[0]);
+            raw_data.push(rgba.0[0]);
         }
     }
 
-    bytes.into_boxed_slice()
+    let mut encoder = ZlibEncoder::new(Vec::new(), Compression::default());
+    encoder.write_all(raw_data.as_slice())?;
+    let compressed_bytes = encoder.finish()?;
+
+    bytes.extend_from_slice((compressed_bytes.len() as u32).to_le_bytes().as_slice());
+    bytes.extend(compressed_bytes);
+
+    Ok(bytes.into_boxed_slice())
 }
 
-fn make_binary(layers: &[Layer], dimensions: &LayerDimensions) -> Vec<u8> {
+fn make_binary(layers: &[Layer], dimensions: &LayerDimensions) -> io::Result<Vec<u8>> {
     let mut bytes: Vec<u8> = vec![];
     bytes.extend_from_slice(NSD_HEADER.as_slice());
 
@@ -189,10 +201,10 @@ fn make_binary(layers: &[Layer], dimensions: &LayerDimensions) -> Vec<u8> {
     let attribute_bytes = make_attribute_bytes(layers);
     bytes.extend_from_slice(&*attribute_bytes);
 
-    let data_bytes = make_data_bytes(layers, dimensions);
+    let data_bytes = make_data_bytes(layers, dimensions)?;
     bytes.extend_from_slice(&*data_bytes);
 
-    bytes
+    Ok(bytes)
 }
 
 #[derive(Parser)]
@@ -240,7 +252,8 @@ fn main() {
 
     println!("Generating the spatial data file...");
 
-    let spatial_data_bytes = make_binary(layers.as_slice(), &dimensions);
+    let spatial_data_bytes = make_binary(layers.as_slice(), &dimensions)
+        .expect("Could not create the spatial data file.");
 
     let mut spatial_data_path = args.directory.clone();
     spatial_data_path.push(args.output.unwrap_or(PathBuf::from("OutputFile.nsd")));
