@@ -1,10 +1,12 @@
 use std::fs;
 use std::path::PathBuf;
 use std::process::exit;
+use std::sync::mpsc;
 
 use clap::{Parser, ArgAction};
 use image::{DynamicImage, GenericImageView};
 use image::imageops::FilterType;
+use threadpool::ThreadPool;
 
 const NSD_HEADER: [u8; 16] = [
     0x4E, 0x53, 0x47, 0xFF, 0x53, 0x70, 0x61, 0x74, 0x69, 0x61, 0x6C, 0x00, 0x00, 0x00, 0x00, 0x00
@@ -19,11 +21,7 @@ const NSD_DATA_HEADER: [u8; 4] = [
     0x44, 0x41, 0x54, 0xFA
 ];
 
-struct Layer {
-    name: String,
-    image: DynamicImage,
-}
-
+#[derive(Clone)]
 struct LayerDimensions {
     width: u32,
     height: u32,
@@ -51,31 +49,13 @@ impl Default for LayerDimensions {
     }
 }
 
-fn read_layer_files(path: &PathBuf) -> Vec<PathBuf> {
-    std::fs::read_dir(path)
-        .expect("Invalid path")
-        .map(|res| res.map(|dir| dir.path()))
-        .filter_map(|path| path.ok())
-        .filter(|path| path.extension().unwrap_or("".as_ref()).eq("png"))
-        .collect()
+struct Layer {
+    name: String,
+    image: DynamicImage,
 }
 
-fn init_layers(layer_files: Vec<PathBuf>, dimensions: &LayerDimensions, mut save_resized: bool) -> Vec<Layer> {
-    assert!(!layer_files.is_empty());
-
-    let mut layers = Vec::new();
-    layers.reserve(layer_files.len());
-
-    if save_resized {
-        let mut path = layer_files[0].parent().unwrap().to_path_buf();
-        path.push("_resized");
-        if let Err(_) = fs::create_dir(&path) {
-            eprintln!("Could not create directory {}", path.display());
-            save_resized = false;
-        }
-    }
-
-    for file in layer_files {
+impl Layer {
+    pub fn from_file(file: &PathBuf, dimensions: &LayerDimensions, save_resized: bool) -> Layer {
         let layer_name: String = file.file_stem().unwrap().to_string_lossy().as_ref().into();
         println!(
             "Opening layer {layer_name} from file {}...",
@@ -100,15 +80,54 @@ fn init_layers(layer_files: Vec<PathBuf>, dimensions: &LayerDimensions, mut save
 
         println!("Layer {layer_name} has been created.");
 
-        let layer = Layer {
+        Layer {
             name: layer_name,
             image,
-        };
+        }
+    }
+}
 
-        layers.push(layer);
+fn read_layer_files(path: &PathBuf) -> Vec<PathBuf> {
+    std::fs::read_dir(path)
+        .expect("Invalid path")
+        .map(|res| res.map(|dir| dir.path()))
+        .filter_map(|path| path.ok())
+        .filter(|path| path.extension().unwrap_or("".as_ref()).eq("png"))
+        .collect()
+}
+
+fn init_layers_parallel(layer_files: Vec<PathBuf>, dimensions: &LayerDimensions, save_resized: bool) -> Vec<Layer> {
+    let jobs = layer_files.len();
+    let available_workers = std::thread::available_parallelism().map_or(4usize, |threads| threads.get());
+    let workers = std::cmp::min(jobs, available_workers);
+    let pool = ThreadPool::new(workers);
+
+    let (sender, receiver) = mpsc::channel();
+    for file in layer_files {
+        let s = sender.clone();
+        let dimensions_cloned = dimensions.clone();
+        pool.execute(move|| {
+            s.send(Layer::from_file(&file, &dimensions_cloned, save_resized))
+                .expect("The layer will never be sent.");
+        });
     }
 
-    layers
+    receiver.iter().take(jobs).collect()
+}
+
+fn init_layers(layer_files: Vec<PathBuf>, dimensions: &LayerDimensions, mut save_resized: bool) -> Vec<Layer> {
+    assert!(!layer_files.is_empty());
+
+    if save_resized {
+        let mut path = layer_files[0].parent().unwrap().to_path_buf();
+        path.push("_resized");
+        if let Err(_) = fs::create_dir(&path) {
+            eprintln!("Could not create directory {}", path.display());
+            save_resized = false;
+        }
+    }
+
+    init_layers_parallel(layer_files, &dimensions, save_resized)
 }
 
 fn make_attribute_bytes(layers: &[Layer]) -> Box<[u8]> {
