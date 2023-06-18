@@ -1,14 +1,10 @@
-use image::imageops::FilterType;
-use image::{DynamicImage, GenericImageView, ImageFormat};
-use std::{env, ffi, fs};
-use std::ffi::{OsStr, OsString};
-use std::fs::DirEntry;
-use std::io;
-use std::mem::size_of;
-use std::path::{Path, PathBuf};
+use std::fs;
+use std::path::PathBuf;
 use std::process::exit;
-use std::str::FromStr;
+
 use clap::Parser;
+use image::{DynamicImage, GenericImageView};
+use image::imageops::FilterType;
 
 const DEFAULT_TEX_WIDTH: u32 = 1024;
 const DEFAULT_TEX_HEIGHT: u32 = 512;
@@ -30,7 +26,6 @@ const NSG_SPATIAL_DATA_DATA_HEADER: [u8; 4] = [
 
 struct Layer {
     name: String,
-    filepath: PathBuf,
     image: DynamicImage,
 }
 
@@ -54,7 +49,7 @@ fn init_layers(layer_files: Vec<PathBuf>) -> Vec<Layer> {
             file.to_str().unwrap()
         );
 
-        let mut reader = image::io::Reader::open(&file).unwrap();
+        let reader = image::io::Reader::open(&file).unwrap();
         let img = reader.with_guessed_format().unwrap().decode().unwrap();
 
         println!("Resizing layer {layer_name}...");
@@ -74,7 +69,6 @@ fn init_layers(layer_files: Vec<PathBuf>) -> Vec<Layer> {
 
         let layer = Layer {
             name: layer_name,
-            filepath: file,
             image,
         };
 
@@ -157,7 +151,7 @@ fn main() {
         exit(1);
     }
 
-    let mut layers = init_layers(layers);
+    let layers = init_layers(layers);
 
     println!("Generating the spatial data file...");
 
