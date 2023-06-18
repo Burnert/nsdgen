@@ -1,6 +1,6 @@
 use image::imageops::FilterType;
 use image::{DynamicImage, GenericImageView, ImageFormat};
-use std::{ffi, fs};
+use std::{env, ffi, fs};
 use std::ffi::{OsStr, OsString};
 use std::fs::DirEntry;
 use std::io;
@@ -8,6 +8,7 @@ use std::mem::size_of;
 use std::path::{Path, PathBuf};
 use std::process::exit;
 use std::str::FromStr;
+use clap::Parser;
 
 const DEFAULT_TEX_WIDTH: u32 = 1024;
 const DEFAULT_TEX_HEIGHT: u32 = 512;
@@ -133,16 +134,24 @@ fn make_data_bytes(layers: &[Layer]) -> Box<[u8]> {
     bytes.into_boxed_slice()
 }
 
+#[derive(Parser)]
+struct CliArgs {
+    /// Input directory which contains the layer files.
+    #[arg()]
+    directory: PathBuf,
+
+    /// Output file name (placed inside the specified input directory)
+    #[arg(short, long)]
+    output: Option<PathBuf>,
+}
+
 fn main() {
-    let input = std::io::stdin();
+    let args = CliArgs::parse();
 
-    println!("Specify a directory with exported spatial data layers: ");
+    println!("Trying to generate spatial data file using layers from directory {}...",
+             args.directory.display());
 
-    // let mut exported_dir = String::new();
-    // input.read_line(&mut exported_dir).unwrap();
-    let mut exported_dir = String::from(r"C:\dev\drJonesDev\culture\test");
-
-    let layers = read_layer_files(&PathBuf::from_str(exported_dir.trim()).unwrap());
+    let layers = read_layer_files(&args.directory);
     if layers.is_empty() {
         eprintln!("Layers not found.");
         exit(1);
@@ -164,9 +173,12 @@ fn main() {
     let data_bytes = make_data_bytes(&layers);
     spatial_data_bytes.extend_from_slice(&*data_bytes);
 
-    let mut spatial_data_path = PathBuf::from_str(exported_dir.trim()).unwrap();
-    spatial_data_path.push("SpatialData.nsgsd");
-    if let Err(_) = fs::write(spatial_data_path, spatial_data_bytes) {
+    let mut spatial_data_path = args.directory.clone();
+    spatial_data_path.push(args.output.unwrap_or(PathBuf::from("SpatialDataOutputFile.nsgsd")));
+    if let Err(_) = fs::write(&spatial_data_path, spatial_data_bytes) {
         eprintln!("Could not save the spatial data file.");
+        exit(1);
     }
+
+    println!("File {} has been generated successfully!", spatial_data_path.display());
 }
