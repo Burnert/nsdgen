@@ -11,6 +11,8 @@ clap = { version = "4.3.4", features = ["derive"] }
 
 [profile.dev]
 opt-level = 0
+debug = true
 
 [profile.release]
 opt-level = 3
+strip = true
