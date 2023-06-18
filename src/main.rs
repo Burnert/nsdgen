@@ -176,6 +176,22 @@ fn make_data_bytes(layers: &[Layer], dimensions: &LayerDimensions) -> Box<[u8]> 
     bytes.into_boxed_slice()
 }
 
+fn make_binary(layers: &[Layer], dimensions: &LayerDimensions) -> Vec<u8> {
+    let mut bytes: Vec<u8> = vec![];
+    bytes.extend_from_slice(NSD_HEADER.as_slice());
+
+    let dimensions_bytes = make_dimensions_bytes(dimensions);
+    bytes.extend_from_slice(&*dimensions_bytes);
+
+    let attribute_bytes = make_attribute_bytes(layers);
+    bytes.extend_from_slice(&*attribute_bytes);
+
+    let data_bytes = make_data_bytes(layers, dimensions);
+    bytes.extend_from_slice(&*data_bytes);
+
+    bytes
+}
+
 #[derive(Parser)]
 #[clap(disable_help_flag = true)]
 struct CliArgs {
@@ -220,17 +236,7 @@ fn main() {
 
     println!("Generating the spatial data file...");
 
-    let mut spatial_data_bytes: Vec<u8> = vec![];
-    spatial_data_bytes.extend_from_slice(NSD_HEADER.as_slice());
-
-    let dimensions_bytes = make_dimensions_bytes(&dimensions);
-    spatial_data_bytes.extend_from_slice(&*dimensions_bytes);
-
-    let attribute_bytes = make_attribute_bytes(&layers);
-    spatial_data_bytes.extend_from_slice(&*attribute_bytes);
-
-    let data_bytes = make_data_bytes(&layers, &dimensions);
-    spatial_data_bytes.extend_from_slice(&*data_bytes);
+    let spatial_data_bytes = make_binary(layers.as_slice(), &dimensions);
 
     let mut spatial_data_path = args.directory.clone();
     spatial_data_path.push(args.output.unwrap_or(PathBuf::from("OutputFile.nsd")));
