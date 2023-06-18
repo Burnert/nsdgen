@@ -60,9 +60,20 @@ fn read_layer_files(path: &PathBuf) -> Vec<PathBuf> {
         .collect()
 }
 
-fn init_layers(layer_files: Vec<PathBuf>, dimensions: &LayerDimensions) -> Vec<Layer> {
+fn init_layers(layer_files: Vec<PathBuf>, dimensions: &LayerDimensions, mut save_resized: bool) -> Vec<Layer> {
+    assert!(!layer_files.is_empty());
+
     let mut layers = Vec::new();
     layers.reserve(layer_files.len());
+
+    if save_resized {
+        let mut path = layer_files[0].parent().unwrap().to_path_buf();
+        path.push("_resized");
+        if let Err(_) = fs::create_dir(&path) {
+            eprintln!("Could not create directory {}", path.display());
+            save_resized = false;
+        }
+    }
 
     for file in layer_files {
         let layer_name: String = file.file_stem().unwrap().to_string_lossy().as_ref().into();
@@ -77,15 +88,15 @@ fn init_layers(layer_files: Vec<PathBuf>, dimensions: &LayerDimensions) -> Vec<L
         println!("Resizing layer {layer_name}...");
         let image = img.resize(dimensions.width, dimensions.height, FilterType::Nearest);
 
-        // let mut new_filepath = file.parent().unwrap().to_path_buf();
-        // let mut filename = file.file_stem().unwrap().to_os_string();
-        // filename.push("_resized.");
-        // filename.push(file.extension().unwrap());
-        // new_filepath.push(filename);
+        if save_resized {
+            let mut new_filepath = file.parent().unwrap().to_path_buf();
+            new_filepath.push("_resized");
+            new_filepath.push(file.file_name().unwrap());
 
-        // image
-        //     .save(new_filepath)
-        //     .expect("Could not save the resized image");
+            if let Err(_) = image.save(&new_filepath) {
+                eprintln!("Could not save the resized image {}", new_filepath.display());
+            }
+        }
 
         println!("Layer {layer_name} has been created.");
 
@@ -167,6 +178,9 @@ struct CliArgs {
     /// Texture height will be set to 2^hpower (min=0, max=12)
     #[arg(short, long, default_value_t = 9, value_parser = clap::value_parser!(u8).range(0..=12), value_name = "HEIGHT_POWER")]
     hpower: u8,
+
+    #[arg(long, default_value_t = false)]
+    save_resized: bool,
 }
 
 fn main() {
@@ -183,7 +197,7 @@ fn main() {
         exit(1);
     }
 
-    let layers = init_layers(layers, &dimensions);
+    let layers = init_layers(layers, &dimensions, args.save_resized);
 
     println!("Generating the spatial data file...");
 
