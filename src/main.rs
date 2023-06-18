@@ -1,11 +1,14 @@
 use std::fs;
+use std::os::windows::fs::MetadataExt;
 use std::path::PathBuf;
 use std::process::exit;
 use std::sync::mpsc;
+use std::time::Instant;
 
 use clap::{Parser, ArgAction};
 use image::{DynamicImage, GenericImageView};
 use image::imageops::FilterType;
+use thousands::Separable;
 use threadpool::ThreadPool;
 
 const NSD_HEADER: [u8; 16] = [
@@ -221,10 +224,10 @@ struct CliArgs {
 fn main() {
     let args = CliArgs::parse();
 
-    let dimensions = LayerDimensions::from_power_of_two(args.wpower as u32, args.hpower as u32);
-
     println!("Trying to generate spatial data file using layers from directory {}...",
              args.directory.display());
+
+    let start = Instant::now();
 
     let layers = read_layer_files(&args.directory);
     if layers.is_empty() {
@@ -232,6 +235,7 @@ fn main() {
         exit(1);
     }
 
+    let dimensions = LayerDimensions::from_power_of_two(args.wpower as u32, args.hpower as u32);
     let layers = init_layers(layers, &dimensions, args.save_resized);
 
     println!("Generating the spatial data file...");
@@ -246,4 +250,14 @@ fn main() {
     }
 
     println!("File {} has been generated successfully!", spatial_data_path.display());
+
+    let file_size = fs::metadata(&spatial_data_path)
+        .map_or(0, |metadata| metadata.file_size())
+        .separate_with_commas();
+    let duration = (Instant::now() - start)
+        .as_secs_f64();
+
+    println!("Stats:");
+    println!("    File size: {file_size} bytes");
+    println!("    Time took: {duration:.5} seconds");
 }
