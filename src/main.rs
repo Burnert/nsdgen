@@ -121,7 +121,12 @@ fn init_layers_parallel(layer_files: Vec<PathBuf>, dimensions: &LayerDimensions,
     receiver.iter().take(jobs).collect()
 }
 
-fn init_layers(layer_files: Vec<PathBuf>, dimensions: &LayerDimensions, mut save_resized: bool) -> Vec<Layer> {
+fn init_layers(
+    layer_files: Vec<PathBuf>,
+    dimensions: &LayerDimensions,
+    mut save_resized: bool,
+    run_sequential: bool
+) -> Vec<Layer> {
     assert!(!layer_files.is_empty());
 
     if save_resized {
@@ -133,7 +138,17 @@ fn init_layers(layer_files: Vec<PathBuf>, dimensions: &LayerDimensions, mut save
         }
     }
 
-    init_layers_parallel(layer_files, &dimensions, save_resized)
+    let mut layers: Vec<Layer> = if !run_sequential {
+        init_layers_parallel(layer_files, &dimensions, save_resized)
+    }
+    else {
+        layer_files
+            .iter()
+            .map(|file| Layer::from_file(&file, &dimensions, save_resized))
+            .collect()
+    };
+    layers.sort_by(|lhs, rhs| lhs.name.cmp(&rhs.name));
+    layers
 }
 
 fn make_attribute_bytes(layers: &[Layer]) -> Box<[u8]> {
@@ -231,6 +246,9 @@ struct CliArgs {
 
     #[arg(long, default_value_t = false)]
     save_resized: bool,
+
+    #[arg(long, default_value_t = false)]
+    run_sequential: bool
 }
 
 fn main() {
@@ -248,7 +266,12 @@ fn main() {
     }
 
     let dimensions = LayerDimensions::from_power_of_two(args.wpower as u32, args.hpower as u32);
-    let layers = init_layers(layers, &dimensions, args.save_resized);
+    let layers = init_layers(layers, &dimensions, args.save_resized, args.run_sequential);
+
+    println!("Sorted layers:");
+    for layer in &layers {
+        println!("- {}", layer.name);
+    }
 
     println!("Generating the spatial data file...");
 
